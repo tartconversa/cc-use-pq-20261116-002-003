@@ -11,6 +11,7 @@ from .attendance import Attendance
 from .competition import Competition
 from .disputes import Disputes
 from .errors import DomainError
+from .flow import Flow
 from .publication import Publication
 from .provenance import Provenance
 from .reconciliation import Reconciliation
@@ -120,6 +121,7 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     competition = Competition(store)
     services = Services(store)
     analytics = Analytics(store)
+    flow = Flow(store)
     publication = Publication(store)
     provenance = Provenance(store)
     attendance = Attendance(store)
@@ -274,6 +276,11 @@ def create_app(db_path: str | Path | None = None) -> FastAPI:
     @application.get('/events/{event_id}/timeline')
     def local_timeline(event_id: str):
         return reconciliation.local_timeline(event_id)
+
+    @application.get('/events/{event_id}/zone-flow')
+    def zone_flow(event_id: str, start: str | None = None, end: str | None = None,
+                  version: int | None = None):
+        return flow.zone_flow(event_id, start, end, version)
 
     @application.post('/events/{event_id}/publish')
     def publish(event_id: str, body: PublishInput):

@@ -70,3 +70,46 @@ class ApiTests(Scenario):
 
     def test_api_health(self):
         self.assertEqual(self.client.get('/health').json(), {'status': 'ok'})
+
+    def test_api_zone_flow(self):
+        self.client.post('/events', json={'id': 'api1', 'name': 'Open day',
+                                         'starts_at': START, 'ends_at': END,
+                                         'timezone': 'Asia/Shanghai'})
+        for code, kind, opens, closes in [
+                ('tea', 'tea', '2026-10-26T09:00:00+08:00', '2026-10-26T13:00:00+08:00'),
+                ('tour', 'tourism', '2026-10-26T12:00:00+08:00', '2026-10-26T18:00:00+08:00')]:
+            zone = {'code': code, 'label': code, 'kind': kind,
+                    'opens_at': opens, 'closes_at': closes}
+            self.assertEqual(self.client.post('/events/api1/zones', json=zone).status_code, 201)
+        group = {'code': 'dance', 'label': 'Dance', 'criteria': {'form': 60, 'music': 40},
+                 'min_judges': 1, 'max_judges': 2}
+        self.assertEqual(self.client.post('/events/api1/groups', json=group).status_code, 201)
+        team = {'id': 't1', 'group_code': 'dance', 'name': 'Local team',
+                'district': 'Qingpu', 'member_count': 2}
+        self.assertEqual(self.client.post('/events/api1/teams', json=team).status_code, 201)
+        revision = self.client.get('/events/api1').json()['revision']
+        self.client.post('/events/api1/state', json={'target': 'open',
+                                                     'expected_revision': revision})
+        for body in [{'id': 'e1', 'zone_code': 'tea', 'occurred_at': TEN,
+                      'visitor_token': 'v1', 'count': 2},
+                     {'id': 'e2', 'zone_code': 'tour',
+                      'occurred_at': '2026-10-26T12:30:00+08:00',
+                      'visitor_token': 'v1', 'count': 1}]:
+            response = self.client.post('/events/api1/encounters', json=body)
+            self.assertEqual(response.status_code, 201)
+        response = self.client.get('/events/api1/zone-flow',
+                                   params={'start': '2026-10-26T09:00',
+                                           'end': '2026-10-26T18:00'})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload['transitions'],
+                         [{'from_zone': 'tea', 'to_zone': 'tour', 'tokens': 1,
+                           'pairs': 1, 'ambiguous_pairs': 0}])
+        self.assertEqual(payload['totals'],
+                         {'encounters': 2, 'visits': 3, 'unique_visitors': 1})
+        self.assertEqual(payload['window']['start_local'], '2026-10-26T09:00:00+08:00')
+        self.assertFalse(payload['reconciliation']['compared'])
+        self.assertTrue(payload['caveats'])
+        missing = self.client.get('/events/api1/zone-flow', params={'version': 1})
+        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(missing.json()['error'], 'snapshot_not_found')
